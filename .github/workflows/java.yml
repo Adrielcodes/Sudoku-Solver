@@ -1,0 +1,23 @@
+name: Java CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Compile
+        run: javac -Xlint:all -Werror -d out src/*.java test/*.java
+      - name: Run tests
+        run: java -cp out SudokuTest
+      - name: Solve example puzzles
+        run: |
+          java -cp out Main -f puzzles/easy.txt
+          java -cp out Main -f puzzles/hard.txt

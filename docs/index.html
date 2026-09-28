@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sudoku Solver</title>
+  <meta name="description" content="Watch a backtracking algorithm solve any Sudoku, step by step." />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧩</text></svg>" />
+  <style>
+    :root {
+      --bg: #f4f5f9;
+      --panel: #ffffff;
+      --text: #15171c;
+      --muted: #6b7280;
+      --line: #d6d9e2;
+      --thick: #2c3040;
+      --given: #15171c;
+      --solved: #4f46e5;
+      --try: #f59e0b;
+      --undo: #ef4444;
+      --error-bg: #fde2e2;
+      --focus: #e0e7ff;
+      --btn: #4f46e5;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0e1015;
+        --panel: #171a21;
+        --text: #eceef3;
+        --muted: #9199a6;
+        --line: #2d323d;
+        --thick: #aab1c0;
+        --given: #eceef3;
+        --solved: #8b87ff;
+        --try: #fbbf24;
+        --undo: #f87171;
+        --error-bg: #4a1d1d;
+        --focus: #25284a;
+        --btn: #6d66ff;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    }
+    main {
+      max-width: 520px;
+      margin: 0 auto;
+      padding: 32px 16px 48px;
+      display: grid;
+      gap: 18px;
+    }
+    header h1 { margin: 0; font-size: 2rem; letter-spacing: -0.02em; }
+    header p { margin: 4px 0 0; color: var(--muted); }
+    .board {
+      display: grid;
+      grid-template-columns: repeat(9, 1fr);
+      aspect-ratio: 1;
+      background: var(--panel);
+      border: 3px solid var(--thick);
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    .board input {
+      width: 100%;
+      height: 100%;
+      min-width: 0;
+      border: 0;
+      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      background: transparent;
+      color: var(--solved);
+      text-align: center;
+      font: 600 clamp(1rem, 5vw, 1.6rem) system-ui, sans-serif;
+      caret-color: transparent;
+      transition: background 0.15s;
+    }
+    .board input:focus { outline: none; background: var(--focus); }
+    .board input.given { color: var(--given); font-weight: 800; }
+    .board input.try { color: var(--try); }
+    .board input.undo { background: color-mix(in srgb, var(--undo) 18%, transparent); }
+    .board input.conflict { background: var(--error-bg); color: var(--undo); }
+    .board input:nth-child(9n) { border-right: 0; }
+    .board input:nth-child(9n + 3), .board input:nth-child(9n + 6) { border-right: 2px solid var(--thick); }
+    .board input:nth-child(n + 19):nth-child(-n + 27),
+    .board input:nth-child(n + 46):nth-child(-n + 54) { border-bottom: 2px solid var(--thick); }
+    .board input:nth-child(n + 73) { border-bottom: 0; }
+    .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    button, select {
+      font: inherit;
+      border-radius: 8px;
+      padding: 9px 14px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--text);
+      cursor: pointer;
+    }
+    button.primary { background: var(--btn); border-color: var(--btn); color: #fff; font-weight: 600; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .speed { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 0.9rem; }
+    .status {
+      min-height: 1.5em;
+      margin: 0;
+      font-size: 0.95rem;
+    }
+    .status.error { color: var(--undo); }
+    .stats { color: var(--muted); font-size: 0.9rem; margin: 0; }
+    details { color: var(--muted); font-size: 0.92rem; line-height: 1.55; }
+    summary { cursor: pointer; color: var(--text); font-weight: 600; }
+    footer { color: var(--muted); font-size: 0.85rem; text-align: center; }
+    a { color: var(--solved); }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>🧩 Sudoku Solver</h1>
+      <p>Type a puzzle or load an example, then solve it instantly or watch the algorithm work.</p>
+    </header>
+
+    <div class="board" id="board" aria-label="Sudoku board"></div>
+
+    <div class="controls">
+      <select id="examples" aria-label="Load an example">
+        <option value="">Load example…</option>
+        <option value="530070000600195000098000060800060003400803001700020006060000280000419005000080079">Easy</option>
+        <option value="000000907000420180000705026100904000050000040000507009920108000034059000507000000">Medium</option>
+        <option value="800000000003600000070090200050007000000045700000100030001000068008500010090000400">"World's hardest"</option>
+      </select>
+      <button class="primary" id="solve">Solve</button>
+      <button id="visualize">Visualize</button>
+      <button id="clear">Clear</button>
+    </div>
+
+    <div class="controls">
+      <label class="speed">Speed <input type="range" id="speed" min="1" max="10" value="6" /></label>
+      <button id="paste" title="Paste an 81-character puzzle from your clipboard">Paste puzzle</button>
+    </div>
+
+    <p class="status" id="status" role="status"></p>
+    <p class="stats" id="stats"></p>
+
+    <details>
+      <summary>How does it work?</summary>
+      <p>
+        The solver uses <strong>backtracking</strong>: it places a digit that fits, moves on, and if it later
+        gets stuck it undoes that choice (<span style="color:var(--undo)">red flash</span>) and tries the next one.
+      </p>
+      <p>
+        Two tricks make it fast. Every row, column, and box keeps a <strong>bitmask</strong> of digits it already
+        uses, so checking a move is one bitwise operation. And it always fills the cell with the
+        <strong>fewest possible digits</strong> first, so forced moves happen early and dead ends are found
+        quickly.
+      </p>
+    </details>
+
+    <footer>
+      Built by <a href="https://github.com/Adrielcodes">Adriel Ramirez</a> ·
+      <a href="https://github.com/Adrielcodes/Sudoku-Solver">Source (Java + JavaScript)</a>
+    </footer>
+  </main>
+
+  <script type="module">
+    import { solve, solveSteps, findConflict } from "./solver.js";
+
+    const boardEl = document.getElementById("board");
+    const statusEl = document.getElementById("status");
+    const statsEl = document.getElementById("stats");
+    const speedEl = document.getElementById("speed");
+    const buttons = ["solve", "visualize", "clear", "paste", "examples"].map((id) => document.getElementById(id));
+
+    const inputs = Array.from({ length: 81 }, (_, i) => {
+      const input = document.createElement("input");
+      input.inputMode = "numeric";
+      input.maxLength = 1;
+      input.autocomplete = "off";
+      input.setAttribute("aria-label", `Row ${Math.floor(i / 9) + 1}, column ${(i % 9) + 1}`);
+      input.addEventListener("keydown", (e) => onKey(e, i));
+      input.addEventListener("input", () => {
+        const digit = input.value.replace(/[^1-9]/g, "").slice(-1);
+        setCell(i, digit ? Number(digit) : 0, true);
+        if (digit) inputs[Math.min(i + 1, 80)].focus();
+      });
+      boardEl.append(input);
+      return input;
+    });
+
+    let animation = null;
+
+    function setCell(i, digit, isGiven) {
+      inputs[i].value = digit ? String(digit) : "";
+      inputs[i].className = digit && isGiven ? "given" : "";
+      validate();
+    }
+
+    function readCells() {
+      return inputs.map((input) => (input.classList.contains("given") ? Number(input.value) || 0 : 0));
+    }
+
+    function load(puzzle) {
+      stop();
+      [...puzzle].forEach((ch, i) => {
+        const d = Number(ch) || 0;
+        inputs[i].value = d ? String(d) : "";
+        inputs[i].className = d ? "given" : "";
+      });
+      statsEl.textContent = "";
+      validate();
+    }
+
+    function validate() {
+      inputs.forEach((input) => input.classList.remove("conflict"));
+      const conflict = findConflict(readCells());
+      if (conflict !== -1) {
+        inputs[conflict].classList.add("conflict");
+        setStatus(`That ${inputs[conflict].value} breaks the rules. It already appears in its row, column, or box.`, true);
+        return false;
+      }
+      setStatus("");
+      return true;
+    }
+
+    function setStatus(text, isError = false) {
+      statusEl.textContent = text;
+      statusEl.className = isError ? "status error" : "status";
+    }
+
+    function clearSolverDigits() {
+      inputs.forEach((input) => {
+        if (!input.classList.contains("given")) {
+          input.value = "";
+          input.className = "";
+        }
+      });
+    }
+
+    function busy(on) {
+      buttons.forEach((b) => (b.disabled = on && b.id !== "visualize"));
+      document.getElementById("visualize").textContent = on ? "Stop" : "Visualize";
+    }
+
+    function stop() {
+      if (animation) {
+        cancelAnimationFrame(animation);
+        animation = null;
+        busy(false);
+      }
+    }
+
+    function report(solved, steps, ms) {
+      if (solved) {
+        setStatus("Solved! ✅");
+        statsEl.textContent = `${steps.toLocaleString()} steps${ms !== undefined ? ` · ${ms.toFixed(1)} ms` : ""}`;
+      } else {
+        setStatus("This puzzle has no solution.", true);
+        statsEl.textContent = `Checked ${steps.toLocaleString()} steps`;
+      }
+    }
+
+    document.getElementById("solve").addEventListener("click", () => {
+      if (!validate()) return;
+      clearSolverDigits();
+      const cells = readCells();
+      const start = performance.now();
+      const { solved, steps } = solve(cells);
+      const ms = performance.now() - start;
+      if (solved) cells.forEach((d, i) => !inputs[i].classList.contains("given") && (inputs[i].value = d));
+      report(solved, steps, ms);
+    });
+
+    document.getElementById("visualize").addEventListener("click", () => {
+      if (animation) return stop();
+      if (!validate()) return;
+      clearSolverDigits();
+      const cells = readCells();
+      const steps = solveSteps(cells);
+      let count = 0;
+      busy(true);
+      setStatus("Solving…");
+
+      const frame = () => {
+        // Speed 1 → one step every few frames; speed 10 → hundreds per frame
+        const perFrame = Math.round(Math.pow(2.2, speedEl.valueAsNumber - 3));
+        for (let n = 0; n < Math.max(perFrame, 1); n++) {
+          const { value, done } = steps.next();
+          if (done) {
+            animation = null;
+            busy(false);
+            inputs.forEach((input) => input.classList.remove("try", "undo"));
+            report(value, count);
+            return;
+          }
+          count++;
+          const cell = inputs[value.index];
+          if (value.type === "place") {
+            cell.value = value.digit;
+            cell.className = "try";
+          } else {
+            cell.value = "";
+            cell.className = "undo";
+          }
+        }
+        statsEl.textContent = `${count.toLocaleString()} steps`;
+        animation = requestAnimationFrame(frame);
+      };
+      animation = requestAnimationFrame(frame);
+    });
+
+    document.getElementById("clear").addEventListener("click", () => load("0".repeat(81)));
+
+    document.getElementById("examples").addEventListener("change", (e) => {
+      if (e.target.value) load(e.target.value);
+      e.target.value = "";
+    });
+
+    document.getElementById("paste").addEventListener("click", async () => {
+      try {
+        const text = (await navigator.clipboard.readText()).replace(/[^0-9.]/g, "").replace(/\./g, "0");
+        if (text.length !== 81) return setStatus(`Expected 81 digits on the clipboard, found ${text.length}.`, true);
+        load(text);
+      } catch {
+        setStatus("Couldn't read the clipboard. Your browser may have blocked it.", true);
+      }
+    });
+
+    function onKey(e, i) {
+      const moves = { ArrowUp: -9, ArrowDown: 9, ArrowLeft: -1, ArrowRight: 1 };
+      if (moves[e.key] !== undefined) {
+        e.preventDefault();
+        inputs[(i + moves[e.key] + 81) % 81].focus();
+      } else if (e.key === "Backspace" || e.key === "Delete") {
+        e.preventDefault();
+        setCell(i, 0, false);
+      }
+    }
+
+    load(document.querySelector('#examples option[value^="5300"]').value);
+  </script>
+</body>
+</html>
